@@ -41,6 +41,9 @@ uint16_t w = 960;
 uint16_t h = 540;
 uint8_t c;
 uint8_t cls;
+bool SSD = true;
+bool GNOME = false;
+bool supports_minimisation = true;
 
 int32_t alc_shm(uint64_t sz) {
 	int8_t name[8];
@@ -68,8 +71,40 @@ void resz() {
 	close(fd);
 }
 
+void drawCSD() {
+    int x0 = w - 40, x1 = w - 20; // close button x-range
+    int y0 = 10,     y1 = 30;     // close button y-range
+
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            size_t p = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
+            pixl[p + 0] = 0;   // B
+            pixl[p + 1] = 0;   // G
+            pixl[p + 2] = 255; // R
+            pixl[p + 3] = 255; // A
+        }
+    }
+
+	if (!supports_minimisation) return;
+
+	x0 = w-80; x1 = w-60;
+	y0 = 10;   y1 = 30;
+
+	for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            size_t p = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
+            pixl[p + 0] = 0;   // B
+            pixl[p + 1] = 255; // G
+            pixl[p + 2] = 255; // R
+            pixl[p + 3] = 255; // A
+        }
+    }
+}
+
+
 void draw() {
 	memset(pixl, c, w * h * 4);
+	if (!SSD) drawCSD();
 
 	wl_surface_attach(srfc, bfr, 0, 0);
 	wl_surface_damage_buffer(srfc, 0, 0, w, h);
@@ -168,6 +203,8 @@ void kb_rep(void* data, struct wl_keyboard* kb, int32_t rate, int32_t del) {
 	
 }
 
+int mx, my;
+
 struct wl_keyboard_listener kb_list = {
 	.keymap = kb_map,
 	.enter = kb_enter,
@@ -177,12 +214,72 @@ struct wl_keyboard_listener kb_list = {
 	.repeat_info = kb_rep
 };
 
+struct wl_pointer* ptr;
+
+void start_drag(uint32_t serial) { xdg_toplevel_move(top, seat, serial); }
+
+int in_close_button(int mx, int my) {
+    return (mx >= w-40 && mx <= w-20 && my >= 10 && my <= 30);
+}
+int in_minimise_button(int mx, int my) {
+	if(supports_minimisation == false) return false;
+    return (mx >= w-80 && mx <= w-60 && my >= 10 && my <= 30);
+}
+
+void ptr_enter(void* data, struct wl_pointer* ptr,
+               uint32_t serial, struct wl_surface* surface,
+               wl_fixed_t sx, wl_fixed_t sy) {}
+
+void ptr_leave(void* data, struct wl_pointer* ptr,
+               uint32_t serial, struct wl_surface* surface) {}
+
+void ptr_motion(void* data, struct wl_pointer* ptr,
+                uint32_t time, wl_fixed_t sx, wl_fixed_t sy) {
+    // track mouse position
+    mx = wl_fixed_to_int(sx);
+    my = wl_fixed_to_int(sy);
+}
+
+void ptr_button(void* data, struct wl_pointer* ptr,
+                uint32_t serial, uint32_t time,
+                uint32_t button, uint32_t state) {
+    if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+        // check if mouse position is inside your drawn "close" or "minimise" rectangles
+        if (in_close_button(mx, my)) {
+            cls = 1; // trigger close
+        } else if (in_minimise_button(mx, my)) {
+            // Wayland doesn’t have a universal minimise request.
+			if (supports_minimisation) xdg_toplevel_set_minimized(top);
+            // You can hide your surface or just ignore.
+        } else {
+            // start drag if not in button
+            start_drag(serial);
+        }
+    }
+}
+
+void ptr_axis(void* data, struct wl_pointer* ptr,
+              uint32_t time, uint32_t axis, wl_fixed_t value) {}
+
+struct wl_pointer_listener ptr_list = {
+    .enter = ptr_enter,
+    .leave = ptr_leave,
+    .motion = ptr_motion,
+    .button = ptr_button,
+    .axis = ptr_axis
+};
+
 void seat_cap(void* data, struct wl_seat* seat, uint32_t cap) {
+	if (cap & WL_SEAT_CAPABILITY_POINTER && !ptr) {
+		ptr = wl_seat_get_pointer(seat);
+		wl_pointer_add_listener(ptr, &ptr_list, 0);
+	}
 	if (cap & WL_SEAT_CAPABILITY_KEYBOARD && !kb) {
 		kb = wl_seat_get_keyboard(seat);
 		wl_keyboard_add_listener(kb, &kb_list, 0);
 	}
 }
+
 
 void seat_name(void* data, struct wl_seat* seat, const char* name) {
 		
@@ -243,7 +340,14 @@ int8_t main() {
 	else {
 		fprintf(stderr, "WARNING: Wayland Server Does Not Support SSD\n");
 		fprintf(stdout, "Falling Back to CSD\n");
+		//setup minimisation
+		if(!strcmp(getenv("XDG_CURRENT_DESKTOP"), "GNOME")) {
+			GNOME = true;
+			supports_minimisation = true;
+			fprintf(stdout, "Using GNOME DE\n");
+		}
 		//setup CSD
+		SSD = false;
 	}
 	xdg_toplevel_set_title(top, "wayland client");
 	
