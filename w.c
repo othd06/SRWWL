@@ -14,6 +14,7 @@
 
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
+#include "xdg-decoration-client-protocol.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -32,9 +33,11 @@ struct xdg_wm_base* sh;
 struct xdg_toplevel* top;
 struct wl_seat* seat;
 struct wl_keyboard* kb;
+struct zxdg_decoration_manager_v1* deco_mgr;
+struct zxdg_toplevel_decoration_v1* deco;
 uint8_t* pixl;
-uint16_t w = 200;
-uint16_t h = 100;
+uint16_t w = 960;
+uint16_t h = 540;
 uint8_t c;
 uint8_t cls;
 
@@ -101,6 +104,8 @@ struct xdg_surface_listener xrfc_list = {
 };
 
 void top_conf(void* data, struct xdg_toplevel* top, int32_t nw, int32_t nh, struct wl_array* stat) {
+	return;
+	//we don't want to be able to resize the window
 	if (!nw && !nh) {
 		return;
 	}
@@ -178,7 +183,7 @@ void seat_cap(void* data, struct wl_seat* seat, uint32_t cap) {
 	}
 }
 
-void seat_name(void* data, struct wl_seat* seat, int8_t* name) {
+void seat_name(void* data, struct wl_seat* seat, const char* name) {
 		
 }
 
@@ -187,21 +192,24 @@ struct wl_seat_listener seat_list = {
 	.name = seat_name
 };
 
-void reg_glob(void* data, struct wl_registry* reg, uint32_t name, int8_t* intf, uint32_t v) {
-	if (!strcmp(intf, wl_compositor_interface.name)) {
-		comp = wl_registry_bind(reg, name, &wl_compositor_interface, 4);
-	}
-	else if (!strcmp(intf, wl_shm_interface.name)) {
-		shm = wl_registry_bind(reg, name, &wl_shm_interface, 1);
-	}
-	else if (!strcmp(intf, xdg_wm_base_interface.name)) {
-		sh = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
-		xdg_wm_base_add_listener(sh, &sh_list, 0);
-	}
-	else if (!strcmp(intf, wl_seat_interface.name)) {
-		seat = wl_registry_bind(reg, name, &wl_seat_interface, 1);
-		wl_seat_add_listener(seat, &seat_list, 0);
-	}
+void reg_glob(void* data, struct wl_registry* reg, uint32_t name, const char* intf, uint32_t v) {
+    if (!strcmp(intf, wl_compositor_interface.name)) {
+        comp = wl_registry_bind(reg, name, &wl_compositor_interface, 4);
+    }
+    else if (!strcmp(intf, wl_shm_interface.name)) {
+        shm = wl_registry_bind(reg, name, &wl_shm_interface, 1);
+    }
+    else if (!strcmp(intf, xdg_wm_base_interface.name)) {
+        sh = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
+        xdg_wm_base_add_listener(sh, &sh_list, 0);
+    }
+    else if (!strcmp(intf, zxdg_decoration_manager_v1_interface.name)) {
+        deco_mgr = wl_registry_bind(reg, name, &zxdg_decoration_manager_v1_interface, 1);
+    }
+    else if (!strcmp(intf, wl_seat_interface.name)) {
+        seat = wl_registry_bind(reg, name, &wl_seat_interface, 1);
+        wl_seat_add_listener(seat, &seat_list, 0);
+    }
 }
 
 void reg_glob_rem(void* data, struct wl_registry* reg, uint32_t name) {
@@ -227,7 +235,17 @@ int8_t main() {
 	xdg_surface_add_listener(xrfc, &xrfc_list, 0);
 	top = xdg_surface_get_toplevel(xrfc);
 	xdg_toplevel_add_listener(top, &top_list, 0);
+	if (deco_mgr) {
+		deco = zxdg_decoration_manager_v1_get_toplevel_decoration(deco_mgr, top);
+		zxdg_toplevel_decoration_v1_set_mode(deco, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+	}
+	else {
+		fprintf(stderr, "WARNING: Wayland Server Does Not Support SSD\n");
+		fprintf(stdout, "Falling Back to CSD\n");
+		//setup CSD
+	}
 	xdg_toplevel_set_title(top, "wayland client");
+	
 	wl_surface_commit(srfc);
 
 	while (wl_display_dispatch(disp)) {
