@@ -42,8 +42,6 @@ uint16_t h = 540;
 uint8_t c;
 uint8_t cls;
 bool SSD = true;
-bool GNOME = false;
-bool supports_minimisation = true;
 
 int32_t alc_shm(uint64_t sz) {
 	int8_t name[8];
@@ -72,33 +70,45 @@ void resz() {
 }
 
 void drawCSD() {
+	for (int y = 0; y < 40; y++) {
+		for (int x = 0; x < w; x++) {
+			size_t p = (size_t)(y * w + x) * 4;
+			pixl[p + 0] = 127;
+			pixl[p + 1] = 127;
+			pixl[p + 2] = 127;
+			pixl[p + 3] = 255;
+		}
+	}
     int x0 = w - 40, x1 = w - 20; // close button x-range
     int y0 = 10,     y1 = 30;     // close button y-range
 
     for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
-            size_t p = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
-            pixl[p + 0] = 0;   // B
-            pixl[p + 1] = 0;   // G
-            pixl[p + 2] = 255; // R
-            pixl[p + 3] = 255; // A
+            size_t p_close = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
+            pixl[p_close + 0] = 0;   // B
+            pixl[p_close + 1] = 0;   // G
+            pixl[p_close + 2] = 255; // R
+            pixl[p_close + 3] = 255; // A
+			size_t p_minimise = (size_t)(y * w + x - 40) * 4; // BGRA in memory (little-endian)
+            pixl[p_minimise + 0] = 0;   // B
+            pixl[p_minimise + 1] = 255; // G
+            pixl[p_minimise + 2] = 255; // R
+            pixl[p_minimise + 3] = 255; // A
         }
     }
 
-	if (!supports_minimisation) return;
+	//x0 = w-80; x1 = w-60;
+	//y0 = 10;   y1 = 30;
 
-	x0 = w-80; x1 = w-60;
-	y0 = 10;   y1 = 30;
-
-	for (int y = y0; y < y1; y++) {
-        for (int x = x0; x < x1; x++) {
-            size_t p = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
-            pixl[p + 0] = 0;   // B
-            pixl[p + 1] = 255; // G
-            pixl[p + 2] = 255; // R
-            pixl[p + 3] = 255; // A
-        }
-    }
+	//for (int y = y0; y < y1; y++) {
+    //    for (int x = x0; x < x1; x++) {
+    //        size_t p_minimise = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
+    //        pixl[p_minimise + 0] = 0;   // B
+    //        pixl[p_minimise + 1] = 255; // G
+    //        pixl[p_minimise + 2] = 255; // R
+    //        pixl[p_minimise + 3] = 255; // A
+    //    }
+    //}
 }
 
 
@@ -222,7 +232,6 @@ int in_close_button(int mx, int my) {
     return (mx >= w-40 && mx <= w-20 && my >= 10 && my <= 30);
 }
 int in_minimise_button(int mx, int my) {
-	if(supports_minimisation == false) return false;
     return (mx >= w-80 && mx <= w-60 && my >= 10 && my <= 30);
 }
 
@@ -248,9 +257,7 @@ void ptr_button(void* data, struct wl_pointer* ptr,
         if (in_close_button(mx, my)) {
             cls = 1; // trigger close
         } else if (in_minimise_button(mx, my)) {
-            // Wayland doesn’t have a universal minimise request.
-			if (supports_minimisation) xdg_toplevel_set_minimized(top);
-            // You can hide your surface or just ignore.
+			xdg_toplevel_set_minimized(top);
         } else {
             // start drag if not in button
             start_drag(serial);
@@ -340,14 +347,10 @@ int8_t main() {
 	else {
 		fprintf(stderr, "WARNING: Wayland Server Does Not Support SSD\n");
 		fprintf(stdout, "Falling Back to CSD\n");
-		//setup minimisation
-		if(!strcmp(getenv("XDG_CURRENT_DESKTOP"), "GNOME")) {
-			GNOME = true;
-			supports_minimisation = true;
-			fprintf(stdout, "Using GNOME DE\n");
-		}
 		//setup CSD
 		SSD = false;
+		h+=40;
+		resz();
 	}
 	xdg_toplevel_set_title(top, "wayland client");
 	
