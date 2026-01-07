@@ -1,5 +1,6 @@
+
+#infdef SRWWL
 #define SRWWL
-#ifdef SRWWL
 
 typedef enum {
     KEY_NULL            = 0,        // Key: NULL, used for no key pressed
