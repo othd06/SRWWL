@@ -16,6 +16,7 @@
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 #include "xdg-decoration-client-protocol.h"
+#include "qoidecode.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -25,6 +26,8 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+#include "w.h"
 
 struct wl_compositor* comp;
 struct wl_surface* srfc;
@@ -36,12 +39,18 @@ struct wl_seat* seat;
 struct wl_keyboard* kb;
 struct zxdg_decoration_manager_v1* deco_mgr;
 struct zxdg_toplevel_decoration_v1* deco;
+uint8_t* img;
+void (*img_resize)();
 uint8_t* pixl;
 uint16_t w = 960;
 uint16_t h = 540;
-uint8_t c;
 uint8_t cls;
 bool SSD = true;
+struct image minimise_button;
+struct image close_button;
+const int CSD_bar_size = 40;
+bool frame_pending = false;
+bool is_key_down[150];
 
 int32_t alc_shm(uint64_t sz) {
 	int8_t name[8];
@@ -59,6 +68,11 @@ int32_t alc_shm(uint64_t sz) {
 }
 
 void resz() {
+
+	img_resize();
+
+	if (!SSD) h += CSD_bar_size;
+
 	int32_t fd = alc_shm(w * h * 4);
 
 	pixl = mmap(0, w * h * 4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -67,10 +81,16 @@ void resz() {
 	bfr = wl_shm_pool_create_buffer(pool, 0, w, h, w * 4, WL_SHM_FORMAT_ARGB8888);
 	wl_shm_pool_destroy(pool);
 	close(fd);
+
+	if (!SSD) h -= CSD_bar_size;
+}
+
+void set_col_a(uint8_t* v1, uint8_t v2, uint8_t a) {
+	*v1 = (uint8_t)(((uint16_t)(*v1) * (255 - a) + (uint16_t)v2 * a) >> 8);
 }
 
 void drawCSD() {
-	for (int y = 0; y < 40; y++) {
+	for (int y = 0; y < CSD_bar_size; y++) {
 		for (int x = 0; x < w; x++) {
 			size_t p = (size_t)(y * w + x) * 4;
 			pixl[p + 0] = 127;
@@ -84,38 +104,32 @@ void drawCSD() {
 
     for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
+			struct pixel pix_close = close_button.data[(y-y0) * close_button.w + (x-x0)];
             size_t p_close = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
-            pixl[p_close + 0] = 0;   // B
-            pixl[p_close + 1] = 0;   // G
-            pixl[p_close + 2] = 255; // R
-            pixl[p_close + 3] = 255; // A
+            set_col_a(&pixl[p_close + 0], pix_close.b, pix_close.a);   // B
+            set_col_a(&pixl[p_close + 1], pix_close.g, pix_close.a);   // G
+            set_col_a(&pixl[p_close + 2], pix_close.r, pix_close.a);   // R
+            pixl[p_close + 3] = 255;		   						   // A
+			struct pixel pix_minimise = minimise_button.data[(y-y0) * minimise_button.w + (x-x0)];
 			size_t p_minimise = (size_t)(y * w + x - 40) * 4; // BGRA in memory (little-endian)
-            pixl[p_minimise + 0] = 0;   // B
-            pixl[p_minimise + 1] = 255; // G
-            pixl[p_minimise + 2] = 255; // R
-            pixl[p_minimise + 3] = 255; // A
+            set_col_a(&pixl[p_minimise + 0], pix_minimise.b, pix_minimise.a);   // B
+            set_col_a(&pixl[p_minimise + 1], pix_minimise.g, pix_minimise.a);   // G
+            set_col_a(&pixl[p_minimise + 2], pix_minimise.r, pix_minimise.a);   // R
+            pixl[p_minimise + 3] = 255;				   			 				// A
         }
     }
-
-	//x0 = w-80; x1 = w-60;
-	//y0 = 10;   y1 = 30;
-
-	//for (int y = y0; y < y1; y++) {
-    //    for (int x = x0; x < x1; x++) {
-    //        size_t p_minimise = (size_t)(y * w + x) * 4; // BGRA in memory (little-endian)
-    //        pixl[p_minimise + 0] = 0;   // B
-    //        pixl[p_minimise + 1] = 255; // G
-    //        pixl[p_minimise + 2] = 255; // R
-    //        pixl[p_minimise + 3] = 255; // A
-    //    }
-    //}
 }
 
 
 void draw() {
-	memset(pixl, c, w * h * 4);
-	if (!SSD) drawCSD();
-
+	//memset(img, c, w * h * 4);
+	if (SSD) {
+		memcpy(pixl, img, w*h*4*sizeof(uint8_t));
+	}
+	else {
+		memcpy(&pixl[w*CSD_bar_size*4*sizeof(uint8_t)], img, w*h*4*sizeof(uint8_t));
+		drawCSD();
+	}
 	wl_surface_attach(srfc, bfr, 0, 0);
 	wl_surface_damage_buffer(srfc, 0, 0, w, h);
 	wl_surface_commit(srfc);
@@ -124,11 +138,13 @@ void draw() {
 struct wl_callback_listener cb_list;
 
 void frame_new(void* data, struct wl_callback* cb, uint32_t a) {
+	frame_pending = false;
+	
 	wl_callback_destroy(cb);
 	cb = wl_surface_frame(srfc);
 	wl_callback_add_listener(cb, &cb_list, 0);
 	
-	c++;
+	//c++;
 	draw();
 }
 
@@ -194,15 +210,18 @@ void kb_leave(void* data, struct wl_keyboard* kb, uint32_t ser, struct wl_surfac
 }
 
 void kb_key(void* data, struct wl_keyboard* kb, uint32_t ser, uint32_t t, uint32_t key, uint32_t stat) {
-	if (key == 1) {
-		cls = 1;
-	}
-	else if (key == 30) {
-		printf("a\n");
-	}
-	else if (key == 32) {
-		printf("d\n");
-	}
+	printf("%d\n", key);
+	if (stat) is_key_down[key] = true;
+	else is_key_down[key] = false;
+	//if (key == 1) {
+	//	cls = 1;
+	//}
+	//else if (key == 30) {
+	//	printf("a\n");
+	//}
+	//else if (key == 32) {
+	//	printf("d\n");
+	//}
 }
 
 void kb_mod(void* data, struct wl_keyboard* kb, uint32_t ser, uint32_t dep, uint32_t lat, uint32_t lock, uint32_t grp) {
@@ -326,9 +345,21 @@ struct wl_registry_listener reg_list = {
 	.global_remove = reg_glob_rem
 };
 
-int8_t main() {
-	struct wl_display* disp = wl_display_connect(0);
-	struct wl_registry* reg = wl_display_get_registry(disp);
+void img_resz_def() {}
+
+struct wl_display* disp;
+struct wl_registry* reg;
+struct xdg_surface* xrfc;
+void createWindow(int W, int H, const char* title) {
+	w = W;
+	h = H;
+
+	img_resize = img_resz_def;
+
+	for (int i = 0; i < 348; i++) {is_key_down[i] = false;}
+
+	disp = wl_display_connect(0);
+	reg = wl_display_get_registry(disp);
 	wl_registry_add_listener(reg, &reg_list, 0);
 	wl_display_roundtrip(disp);
 
@@ -336,7 +367,7 @@ int8_t main() {
 	struct wl_callback* cb = wl_surface_frame(srfc);
 	wl_callback_add_listener(cb, &cb_list, 0);
 
-	struct xdg_surface* xrfc = xdg_wm_base_get_xdg_surface(sh, srfc);
+	xrfc = xdg_wm_base_get_xdg_surface(sh, srfc);
 	xdg_surface_add_listener(xrfc, &xrfc_list, 0);
 	top = xdg_surface_get_toplevel(xrfc);
 	xdg_toplevel_add_listener(top, &top_list, 0);
@@ -349,17 +380,18 @@ int8_t main() {
 		fprintf(stdout, "Falling Back to CSD\n");
 		//setup CSD
 		SSD = false;
-		h+=40;
 		resz();
+		minimise_button = decodeQOI("minimise.qoi");
+		close_button = decodeQOI("close.qoi");
 	}
-	xdg_toplevel_set_title(top, "wayland client");
+	xdg_toplevel_set_title(top, title);
 	
 	wl_surface_commit(srfc);
+}
 
-	while (wl_display_dispatch(disp)) {
-		if (cls) break;
-	}
-	
+bool windowShouldClose() {return (!wl_display_dispatch(disp) || cls);}
+
+void destroyWindow() {
 	if (kb) {
 		wl_keyboard_destroy(kb);
 	}
@@ -371,5 +403,47 @@ int8_t main() {
 	xdg_surface_destroy(xrfc);
 	wl_surface_destroy(srfc);
 	wl_display_disconnect(disp);
+}
+
+void setBuffer(uint8_t* new_img) {
+	img = new_img;
+}
+
+void waitForFrame() {
+	frame_pending = true;
+	while (frame_pending) {
+		if (wl_display_dispatch(disp) == -1) {
+			break; // compositor closed
+		}
+	}
+}
+
+bool isKeyDown(KeyboardKey key) {
+	return is_key_down[(int)key];
+}
+
+bool isKeyUp(KeyboardKey key) {
+	return !is_key_down[(int)key];
+}
+
+int8_t main() {
+	uint8_t* img_d = malloc(w*h*4*sizeof(uint8_t));
+	setBuffer(img_d);
+	createWindow(w, h, "Wayland window");
+
+	uint8_t c;
+
+	while (!windowShouldClose()) {
+		memset(img, c, w * h * 4);
+		c++;
+		waitForFrame();
+	}
+	
+	destroyWindow();
+
+	// TESTING
+
+	// ENDTESTING
+
 	return 0;
 }
