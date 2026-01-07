@@ -125,14 +125,17 @@ void draw() {
 	//memset(img, c, w * h * 4);
 	if (SSD) {
 		memcpy(pixl, img, w*h*4*sizeof(uint8_t));
+		wl_surface_attach(srfc, bfr, 0, 0);
+		wl_surface_damage_buffer(srfc, 0, 0, w, h);
+		wl_surface_commit(srfc);
 	}
 	else {
 		memcpy(&pixl[w*CSD_bar_size*4*sizeof(uint8_t)], img, w*h*4*sizeof(uint8_t));
 		drawCSD();
+		wl_surface_attach(srfc, bfr, 0, 0);
+		wl_surface_damage_buffer(srfc, 0, 0, w, h + CSD_bar_size);
+		wl_surface_commit(srfc);
 	}
-	wl_surface_attach(srfc, bfr, 0, 0);
-	wl_surface_damage_buffer(srfc, 0, 0, w, h);
-	wl_surface_commit(srfc);
 }
 
 struct wl_callback_listener cb_list;
@@ -210,7 +213,7 @@ void kb_leave(void* data, struct wl_keyboard* kb, uint32_t ser, struct wl_surfac
 }
 
 void kb_key(void* data, struct wl_keyboard* kb, uint32_t ser, uint32_t t, uint32_t key, uint32_t stat) {
-	printf("%d\n", key);
+	//printf("%d\n", key);
 	if (stat) is_key_down[key] = true;
 	else is_key_down[key] = false;
 	//if (key == 1) {
