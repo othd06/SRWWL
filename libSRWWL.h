@@ -1,5 +1,5 @@
 
-#infdef SRWWL
+#ifndef SRWWL
 #define SRWWL
 
 typedef enum {
