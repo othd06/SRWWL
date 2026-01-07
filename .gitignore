@@ -1,2 +1,5 @@
 xdg*
 w
+*.o
+*.a
+build

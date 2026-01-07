@@ -27,7 +27,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-#include "w.h"
+#include "libSRWWL.h"
 
 struct wl_compositor* comp;
 struct wl_surface* srfc;
@@ -50,7 +50,7 @@ struct image minimise_button;
 struct image close_button;
 const int CSD_bar_size = 40;
 bool frame_pending = false;
-bool is_key_down[150];
+bool is_key_down[256];
 
 int32_t alc_shm(uint64_t sz) {
 	int8_t name[8];
