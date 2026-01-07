@@ -425,25 +425,3 @@ bool isKeyDown(KeyboardKey key) {
 bool isKeyUp(KeyboardKey key) {
 	return !is_key_down[(int)key];
 }
-
-int8_t main() {
-	uint8_t* img_d = malloc(w*h*4*sizeof(uint8_t));
-	setBuffer(img_d);
-	createWindow(w, h, "Wayland window");
-
-	uint8_t c;
-
-	while (!windowShouldClose()) {
-		memset(img, c, w * h * 4);
-		c++;
-		waitForFrame();
-	}
-	
-	destroyWindow();
-
-	// TESTING
-
-	// ENDTESTING
-
-	return 0;
-}
