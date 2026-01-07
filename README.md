@@ -9,6 +9,7 @@ See https://www.youtube.com/watch?v=iIVIu7YRdY0&t=2137s for instructions on how 
 ## Usage:
 Honestly everything is fairly obvious from libSRWWL.h but just note that the buffer must be exactly the correct size and contain 4 uint8_t's per pixel in BGRA row-major format.
 Compiled binaries are available in releases.
+One finicky touch is that two 20*20 .qoi images are required named minimise.qoi and close.qoi respectively as siblings of the compiled executable in order to support client-side window decoration (such as on GNOME)
 
 ## Dependencies:
 Must have wayland-devel tools installed and link with wayland-client.
