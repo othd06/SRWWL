@@ -2,6 +2,7 @@
 #ifndef SRWWL
 #define SRWWL
 
+//Note: only the names values and *not* their acutal numerical representation are considered public API. Any code that depends upon the internal numerical representation will be platform specific
 typedef enum {
     KEY_NULL            = 0,        // Key: NULL, used for no key pressed
     // Alphanumeric keys
