@@ -40,7 +40,7 @@ struct wl_keyboard* kb;
 struct zxdg_decoration_manager_v1* deco_mgr;
 struct zxdg_toplevel_decoration_v1* deco;
 uint8_t* img;
-void (*img_resize)();
+void (*img_resize)(uint32_t w, uint32_t h);
 uint8_t* pixl;
 uint16_t w = 960;
 uint16_t h = 540;
@@ -51,6 +51,7 @@ struct image close_button;
 const int CSD_bar_size = 40;
 bool frame_pending = false;
 bool is_key_down[256];
+bool frame_dropped = false;
 
 int32_t alc_shm(uint64_t sz) {
 	int8_t name[8];
@@ -69,7 +70,7 @@ int32_t alc_shm(uint64_t sz) {
 
 void resz() {
 
-	img_resize();
+	img_resize((uint32_t)w, (uint32_t)h);
 
 	if (!SSD) h += CSD_bar_size;
 
@@ -141,6 +142,7 @@ void draw() {
 struct wl_callback_listener cb_list;
 
 void frame_new(void* data, struct wl_callback* cb, uint32_t a) {
+	if (!frame_pending) frame_dropped = true;
 	frame_pending = false;
 	
 	wl_callback_destroy(cb);
@@ -348,7 +350,7 @@ struct wl_registry_listener reg_list = {
 	.global_remove = reg_glob_rem
 };
 
-void img_resz_def() {}
+void img_resz_def(uint32_t w, uint32_t h) {}
 
 struct wl_display* disp;
 struct wl_registry* reg;
@@ -412,7 +414,10 @@ void setBuffer(uint8_t* new_img) {
 	img = new_img;
 }
 
+bool frameDropped() {return frame_dropped;}
+
 void waitForFrame() {
+	frame_dropped = false;
 	frame_pending = true;
 	while (frame_pending) {
 		if (wl_display_dispatch(disp) == -1) {

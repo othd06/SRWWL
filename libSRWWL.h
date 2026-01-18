@@ -89,7 +89,7 @@ void createWindow(int W, int H, const char* title);
 void destroyWindow();
 
 void setBuffer(uint8_t*); //tells SRWWL which buffer to copy into pixl every frame callback (but does not transfer ownership to SRWWL)
-void setImageResizeCallback(void (*resize_callback)());
+void setImageResizeCallback(void (*resize_callback)(uint32_t w, uint32_t h));
 
 //events are automatically polled every input event by callbacks called from wayland
 bool isKeyDown(KeyboardKey key);
