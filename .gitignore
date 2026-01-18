@@ -3,3 +3,5 @@ w
 *.o
 *.a
 build
+*.xml
+presentation*

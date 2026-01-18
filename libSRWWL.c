@@ -16,6 +16,7 @@
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 #include "xdg-decoration-client-protocol.h"
+#include "presentation-time-client-protocol.h"
 #include "qoidecode.h"
 #include <stdlib.h>
 #include <stdint.h>
@@ -52,6 +53,9 @@ const int CSD_bar_size = 40;
 bool frame_pending = false;
 bool is_key_down[256];
 bool frame_dropped = false;
+uint32_t refresh_ns = 0;
+uint64_t last_seq = 0;
+struct wp_presentation *presentation = NULL;
 
 int32_t alc_shm(uint64_t sz) {
 	int8_t name[8];
@@ -90,6 +94,40 @@ void set_col_a(uint8_t* v1, uint8_t v2, uint8_t a) {
 	*v1 = (uint8_t)(((uint16_t)(*v1) * (255 - a) + (uint16_t)v2 * a) >> 8);
 }
 
+void feedback_presented(void *data,
+						struct wp_presentation_feedback *feedback,
+						uint32_t tv_sec_hi, uint32_t tv_sec_lo,
+						uint32_t tv_nsec,
+						uint32_t refresh,
+						uint32_t seq_hi,
+						uint32_t seq_lo,
+						uint32_t flags) {
+	uint64_t seq = ((uint64_t)seq_hi << 32) | seq_lo;
+	uint64_t tv_sec = ((uint64_t)tv_sec_hi << 32) | tv_sec_lo;
+	struct timespec ts = { tv_sec, tv_nsec }; 
+	refresh_ns = refresh;
+	if (last_seq && seq > last_seq + 1) {
+		frame_dropped = true; // retrace counter jumped
+		}
+		else {
+			frame_dropped = false;
+		}
+		last_seq = seq;
+		wp_presentation_feedback_destroy(feedback);
+	}
+
+void feedback_discarded(void *data,
+                        struct wp_presentation_feedback *feedback) {
+    wp_presentation_feedback_destroy(feedback);
+}
+
+struct wp_presentation_feedback_listener feedback_listener = {
+    .sync_output = NULL,
+    .presented   = feedback_presented,
+    .discarded   = feedback_discarded
+};
+
+
 void drawCSD() {
 	for (int y = 0; y < CSD_bar_size; y++) {
 		for (int x = 0; x < w; x++) {
@@ -123,7 +161,6 @@ void drawCSD() {
 
 
 void draw() {
-	//memset(img, c, w * h * 4);
 	if (SSD) {
 		memcpy(pixl, img, w*h*4*sizeof(uint8_t));
 		wl_surface_attach(srfc, bfr, 0, 0);
@@ -137,19 +174,22 @@ void draw() {
 		wl_surface_damage_buffer(srfc, 0, 0, w, h + CSD_bar_size);
 		wl_surface_commit(srfc);
 	}
+	if (presentation) {
+	    struct wp_presentation_feedback* fb =
+	        wp_presentation_feedback(presentation, srfc);
+	    wp_presentation_feedback_add_listener(fb, &feedback_listener, NULL);
+	}
 }
 
 struct wl_callback_listener cb_list;
 
 void frame_new(void* data, struct wl_callback* cb, uint32_t a) {
-	if (!frame_pending) frame_dropped = true;
 	frame_pending = false;
 	
 	wl_callback_destroy(cb);
 	cb = wl_surface_frame(srfc);
 	wl_callback_add_listener(cb, &cb_list, 0);
 	
-	//c++;
 	draw();
 }
 
@@ -215,18 +255,8 @@ void kb_leave(void* data, struct wl_keyboard* kb, uint32_t ser, struct wl_surfac
 }
 
 void kb_key(void* data, struct wl_keyboard* kb, uint32_t ser, uint32_t t, uint32_t key, uint32_t stat) {
-	//printf("%d\n", key);
 	if (stat) is_key_down[key] = true;
 	else is_key_down[key] = false;
-	//if (key == 1) {
-	//	cls = 1;
-	//}
-	//else if (key == 30) {
-	//	printf("a\n");
-	//}
-	//else if (key == 32) {
-	//	printf("d\n");
-	//}
 }
 
 void kb_mod(void* data, struct wl_keyboard* kb, uint32_t ser, uint32_t dep, uint32_t lat, uint32_t lock, uint32_t grp) {
@@ -339,6 +369,9 @@ void reg_glob(void* data, struct wl_registry* reg, uint32_t name, const char* in
         seat = wl_registry_bind(reg, name, &wl_seat_interface, 1);
         wl_seat_add_listener(seat, &seat_list, 0);
     }
+	else if (!strcmp(intf, wp_presentation_interface.name)) {
+		presentation = wl_registry_bind(reg, name, &wp_presentation_interface, 1);
+	}
 }
 
 void reg_glob_rem(void* data, struct wl_registry* reg, uint32_t name) {
@@ -392,6 +425,7 @@ void createWindow(int W, int H, const char* title) {
 	xdg_toplevel_set_title(top, title);
 	
 	wl_surface_commit(srfc);
+	//wl_display_roundtrip(disp);
 }
 
 bool windowShouldClose() {return (!wl_display_dispatch(disp) || cls);}
@@ -414,7 +448,10 @@ void setBuffer(uint8_t* new_img) {
 	img = new_img;
 }
 
-bool frameDropped() {return frame_dropped;}
+bool frameDropped() {
+	//fprintf(stdout, "ns: %u\n", (unsigned int)refresh_ns);
+	return frame_dropped;
+}
 
 void waitForFrame() {
 	frame_dropped = false;
