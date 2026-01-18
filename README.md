@@ -3,7 +3,7 @@ A simple library for writing a software renderer using wayland windowing. A fork
 
 ## Compiling:
 Must be compiled with GCC. **NO OTHER COMPILERS ARE SUPPORTED**. This is because of nested functions in qoidecoder.c.
-Must be compiled with valid copies of xdg-decoration-unstable-v1-protocol.c and xdg-shell-protocol.c as well as their respective headers.
+Must be compiled with valid copies of xdg-decoration-unstable-v1-protocol.c, xdg-shell-protocol.c, and presentation-time-client-protocol.c as well as their respective headers.
 See https://www.youtube.com/watch?v=iIVIu7YRdY0&t=2137s for instructions on how to generate these files.
 
 ## Usage:
