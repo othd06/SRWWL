@@ -97,6 +97,8 @@ bool isKeyUp(KeyboardKey key);
 
 bool windowShouldClose();
 
+bool frameDropped();
+
 void waitForFrame();
 
 #endif
